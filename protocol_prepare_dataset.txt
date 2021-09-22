@@ -1,0 +1,57 @@
+先把图片的幅度谱求出来存成tiff，再用GetPSD1D_numpy函数求出其power distribution。其output为1*128的numpy，存成tiff。
+读取训练的时候，把1*128numpy读进来，先用transform.ToTensor()转化成tensor，再torch.reshape(2,8,8)
+
+
+import torch
+import numpy as np
+import os
+import tifffile as tiff
+from scipy import ndimage
+import torchvision.transforms as transforms
+
+
+transform=transforms.ToTensor()
+
+def GetPSD1D_numpy(psd2D):
+    psd2D = 0.5*psd2D + 0.5
+    psd2D = np.exp(psd2D*16)-1
+    h  = psd2D.shape[0]
+    w  = psd2D.shape[1]
+    wc = w//2
+    hc = h//2
+    # create an array of integer radial distances from the center
+    Y, X = np.ogrid[0:h, 0:w]
+    r    = np.hypot(X - wc, Y - hc).astype(np.int)
+    # SUM all psd2D pixels with label 'r' for 0<=r<=wc
+    # NOTE: this will miss power contributions in 'corners' r>wc
+    psd1D = ndimage.sum(psd2D, r, index=np.arange(0, wc))
+    psd1D = psd1D/psd1D[0]
+    return psd1D.reshape(1,128)
+
+
+def GetPSD1D_torch(psd2D):
+    psd2D = 0.5*psd2D + 0.5
+    psd2D = torch.exp(psd2D*16)-1
+    # create an array of integer radial distances from the center
+    Y, X = np.ogrid[0:256, 0:256]
+    r    = np.hypot(X - 128, Y - 128).astype(np.int)
+    r = torch.from_numpy(r)
+    result = torch.zeros((128,))
+
+    for i in range(128):
+        get = torch.eq(r,i)
+        result[i] = (psd2D*get).sum()
+    # SUM all psd2D pixels with label 'r' for 0<=r<=wc
+    # NOTE: this will miss power contributions in 'corners' r>wc
+    psd1D = (result/result[0])
+    psd1D = torch.reshape(psd1D,(2,8,8))
+    return psd1D
+
+directory = os.listdir('./0')
+for i in range(len(directory)):
+    img_numpy = tiff.imread('./0/'+directory[i])
+    img_torch = torch.from_numpy(img_numpy)
+    power_numpy = GetPSD1D_numpy(img_numpy)
+    power_torch = GetPSD1D_torch(img_torch)
+    power_numpy_2 = transform(power_numpy)
+    power_torch_2 = torch.reshape(power_numpy_2,(2,8,8))
